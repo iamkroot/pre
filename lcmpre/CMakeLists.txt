@@ -1,1 +1,0 @@
-add_library(LLVMLCMPRE MODULE Pass.cpp)
