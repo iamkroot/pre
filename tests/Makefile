@@ -1,4 +1,4 @@
-OPTARGS := -enable-new-pm=0 -load ../build/LCM-PRE/libLCM.so -lcm -S
+OPTARGS := -mem2reg -enable-new-pm=0 -load ../build/LCM-PRE/libLCM.so -lcm -S
 TARGET ?= dummy.ll
 SRCDIR := ..
 
@@ -15,4 +15,4 @@ buildlib: ../LCM-PRE/LazyCodeMotion.cpp
 	cmake --build ../build --config Debug --target LCM
 
 %.ll: %.c
-	clang -S -emit-llvm -c $< -o $@ 
+	clang -Xclang -disable-O0-optnone -Wno-nullability-completeness -S -emit-llvm -c $< -o $@ 

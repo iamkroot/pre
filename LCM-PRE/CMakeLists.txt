@@ -1,4 +1,7 @@
-add_library(LCM MODULE LazyCodeMotion.cpp)
+add_library(LCM MODULE 
+Expression.cpp
+LazyCodeMotion.cpp
+)
 
 # Get proper shared-library behavior (where symbols are not necessarily
 # resolved when the shared library is linked) on OS X.
