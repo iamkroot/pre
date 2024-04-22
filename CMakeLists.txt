@@ -3,7 +3,7 @@ project(prepp)
 
 set(CMAKE_CXX_STANDARD 20)
 
-find_package(LLVM 14 REQUIRED CONFIG)
+find_package(LLVM 14 REQUIRED CONFIG PATHS /usr/lib/llvm14/)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 
 include_directories(${LLVM_INCLUDE_DIRS})
