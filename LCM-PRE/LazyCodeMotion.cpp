@@ -15,6 +15,7 @@
 #include <iostream>
 #include <map>
 #include <vector>
+#include <queue>
 
 using namespace llvm;
 
@@ -76,6 +77,7 @@ namespace {
             void calculateGlobalProperties(Function &func);
             void computeEarliest();
             void computeLatest();
+            void addAndPropogateExpressions(Function &func);
     };
 } // namespace
 
@@ -292,6 +294,140 @@ void LCM :: computeLatest()
         latest &= v1;
 
         it->second->latest = latest;
+    }
+}
+
+/**
+ * @brief This is run after the four passes of dataflow analysis.
+ *        It does the following two things:
+ *        - Add expressions where they are to be added (which is determined by the four analysis passes)
+ *        - Propogate the value of newly added expressions. 
+ * 
+ */
+void LCM :: addAndPropogateExpressions(Function &function)
+{
+    std::map<BasicBlock*, std::map<int, Value*>> blockToExpressionsAddedInIt;
+
+    //
+    // Insert the expressions to be added at the top of the basic blocks.
+    //
+    for(auto it = myBlockLevelDataflowInfoMap.begin(); it != myBlockLevelDataflowInfoMap.end(); it++) 
+    {
+        BasicBlock* currBlockPtr = it->first;
+        PREDataFlowBlockLevelInfo* nodeDfInfo = it->second;
+
+        // Expressions to insert is given by -> (latest \cap usedOut)
+        BitVector expsToInsert = nodeDfInfo->latest;
+        expsToInsert &= nodeDfInfo->toBeUsed[1];
+
+        IRBuilder<> instructionBuilder(currBlockPtr);
+        for (auto i = 0; i < expsToInsert.size(); ++i) {
+            if (expsToInsert[i]) {
+                Expression &exp = *(myGlobalDataflowInfo->expressions[i]);
+                instructionBuilder.SetInsertPoint(currBlockPtr, currBlockPtr->getFirstInsertionPt());
+
+                Value* istValue = instructionBuilder.Insert(exp.instr->clone());
+                blockToExpressionsAddedInIt[currBlockPtr][i] = istValue;
+            }
+        }
+    }
+
+
+    // Map to store the number of predecessors of each block left to visit.
+    std::map<BasicBlock*, int> numPredsLeft;
+    for (auto &block : function) {
+        int ctr = 0;
+        for(BasicBlock* p: predecessors(&block)) {
+            ctr ++;
+        }
+        numPredsLeft[&block] = ctr;
+    }
+
+    // Working queue: We use it to fully propogate the newly added expression values.
+    std::queue<BasicBlock*> workingQueue;
+    workingQueue.push(&function.getEntryBlock());
+
+    std::map<BasicBlock*, std::map<int, std::vector<std::pair<Value*, BasicBlock*>>>> blockExpintToEnteringValueInfoMap;
+
+    while (workingQueue.size() > 0) {
+        BasicBlock &block = *workingQueue.front();
+        workingQueue.pop();
+
+        // In the map from <block, expr_int>, we already have values coming from the other blocks.
+        // We also add if there is some new value that is coming from this block.
+        for (auto &ele : blockToExpressionsAddedInIt[&block]) {
+            blockExpintToEnteringValueInfoMap[&block][ele.first].push_back(std::make_pair(ele.second, &block));
+        }
+
+        std::map<int, Value*> expValueMap;
+        // Traverse over all possible expressions.
+        for (int i = 0; i < myGlobalDataflowInfo->expressionsToIndexMap.size(); ++i) {
+            // If something has to be done for the expression.
+            if (blockExpintToEnteringValueInfoMap[&block][i].size() > 0) {
+                Value* value;
+                // If size is more than one, it means a phi node is needed.
+                if (blockExpintToEnteringValueInfoMap[&block][i].size() > 1) {
+                    // Create a fresh phi node.
+                    PHINode* phiNode = PHINode::Create(blockExpintToEnteringValueInfoMap[&block][i][0].first->getType(), 
+                                                       blockExpintToEnteringValueInfoMap[&block][i].size(), 
+                                                       "", 
+                                                       block.getFirstNonPHI());
+                    
+                    // Add the incoming edges to phi node.
+                    for (int j = 0; j < blockExpintToEnteringValueInfoMap[&block][i].size(); ++j) {
+                        phiNode->addIncoming(blockExpintToEnteringValueInfoMap[&block][i][j].first, 
+                                             blockExpintToEnteringValueInfoMap[&block][i][j].second);
+                    }
+                    value = phiNode;
+                } else {
+                    // If the size is 1, that means the value is just the one added in the map.
+                    value = blockExpintToEnteringValueInfoMap[&block][i][0].first;
+                }
+                expValueMap[i] = value;
+            }
+        }
+
+        // Replace the instructions with the appropriate value.
+        for (auto it = block.begin(); it != block.end(); ) {
+            auto &instr = *it;
+            ++it;
+
+            if(isValidExprTypeForTracking(instr)) {
+                Expression* expr = Expression::getExpression(instr);
+                int index = myGlobalDataflowInfo->expressionsToIndexMap[*expr];
+                // For the expressions which have a value to be updated.
+                if (expValueMap.find(index) != expValueMap.end()) {
+
+                    // %1 = %2 + %3 needs not to be replaced by %1.
+                    if (expValueMap[index] == &instr) continue;
+
+                    BasicBlock::iterator iter(&instr);
+                    ReplaceInstWithValue(block.getInstList(), 
+                                         iter,
+                                         expValueMap[index]);
+                }
+            }
+        }
+
+        // Add the new blocks to be processed.
+        for (BasicBlock* succ : successors(&block)) {
+            // Reduce the number of preds left for this successor as we have processed one of
+            // its successor now.
+            numPredsLeft[succ] -= 1;
+
+            // If we have processed all the predecessors of a node, push it in the queue.
+            if ((numPredsLeft[succ]) == 0) {
+                workingQueue.push(succ);
+            }
+
+            // For all the successors, pass the value of expressions that is in this block and needs to
+            // be propogated.
+            for (int i = 0; i < myGlobalDataflowInfo->expressionsToIndexMap.size(); ++i) {
+                if (expValueMap.find(i) != expValueMap.end()) {
+                    blockExpintToEnteringValueInfoMap[succ][i].push_back(std::make_pair(expValueMap[i], &block));
+                }
+            }
+        }
     }
 }
 // ----------------- Dataflow Analyzer classes ------------------
@@ -547,25 +683,31 @@ bool LCM :: runOnFunction(Function &func)
 
     ToBeUsedExpressionsAnalyzer analyzer3(myGlobalDataflowInfo, myBlockLevelDataflowInfoMap, false);
     analyzer3.execute();
-
     errs() << "Number of expressions: " <<  myGlobalDataflowInfo->expressions.size() << "\n";
 
     errs() << "Basic Blocks for Function '" << func.getName() << "':\n";
     // Iterate over basic blocks in the function
     int x = 0;
+
+    addAndPropogateExpressions(func);
+
     for (BasicBlock &basicBlock : func) {
-        errs() << "Basic Block: " << basicBlock.getName().str() << "\n";
+        errs() << "Basic Block: " << basicBlock.getName() << "\n";
         // Iterate over instructions in the basic block
         for (Instruction &instr : basicBlock) {
             errs() << "\t" << instr << "\n";
         }
-        errs() << "\n";
-        x += 1;
+        // errs() << basicBlock.size() << "\n";
+        // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->anticipated[0]);
+        // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->anticipated[1]);
+        // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->willBeAvailable[0]);
+        // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->willBeAvailable[1]);
+        // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->earliest);
+        // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->postponable[0]);
+        // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->postponable[1]);
+        // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->latest);
+        // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->toBeUsed[1]);
 
-        displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->latest);
     }
-    errs() << x << "\n";
-
-
-    return false;
+    return true;
 }
