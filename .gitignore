@@ -6,3 +6,10 @@ cmake-build-*
 *.ll
 *.bc
 *.dot
+*.log
+*.orig
+*.opt
+*.gvn
+*.out
+*.o
+*.tsv
