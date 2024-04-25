@@ -10,6 +10,9 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/ADT/Statistic.h"
+#define DEBUG_TYPE "lcm-pre"
+
 #include "DataflowAnalyzer.h"
 #include "Expression.h"
 #include <iostream>
@@ -18,6 +21,8 @@
 #include <queue>
 
 using namespace llvm;
+
+STATISTIC(NumInstructionsAdded,  "Number of instructions added to perform PRE");
 
 namespace {
     struct LCM : public FunctionPass {
@@ -327,7 +332,7 @@ void LCM :: addAndPropogateExpressions(Function &function)
             if (expsToInsert[i]) {
                 Expression &exp = *(myGlobalDataflowInfo->expressions[i]);
                 instructionBuilder.SetInsertPoint(currBlockPtr, currBlockPtr->getFirstInsertionPt());
-
+                NumInstructionsAdded += 1;
                 Value* istValue = instructionBuilder.Insert(exp.instr->clone());
                 blockToExpressionsAddedInIt[currBlockPtr][i] = istValue;
             }
@@ -711,5 +716,7 @@ bool LCM :: runOnFunction(Function &func)
         // displayBitvector(myBlockLevelDataflowInfoMap[&basicBlock]->toBeUsed[1]);
 
     }
+
+    errs() << "Number of instructions added: " << NumInstructionsAdded << "\n";
     return true;
 }
