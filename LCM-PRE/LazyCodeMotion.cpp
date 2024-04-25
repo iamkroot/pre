@@ -29,6 +29,7 @@ namespace {
         class PREDataFlowGlobalInfo: public DataflowInfo
         {
             public:
+                std::map<Instruction*, Expression*>  instrToExpressionsMap;
                 std::map<Expression, int>  expressionsToIndexMap;
                 std::vector<Expression*> expressions;
                 std::set<BasicBlock*> exitBasicBlocks;
@@ -130,8 +131,8 @@ void LCM :: updateGenAndKillForAnticipatedAnalysis(BasicBlock &block)
     dfInfo.genAnticipated = BitVector(myGlobalDataflowInfo->expressions.size());
 
     for(Instruction &instr: block) {
-        if(isValidExprTypeForTracking(instr)) {
-            Expression* expr = Expression::getExpression(instr);
+        if(myGlobalDataflowInfo->instrToExpressionsMap.find(&instr) != myGlobalDataflowInfo->instrToExpressionsMap.end()) {
+            Expression* expr = myGlobalDataflowInfo->instrToExpressionsMap[&instr];
             int index = getExpressionIndex(expr);
 
             // Output of the instruction.
@@ -152,8 +153,8 @@ void LCM :: updateGenAndKillForUseAnalysis(BasicBlock &block)
     dfInfo.exprsUsed = BitVector(myGlobalDataflowInfo->expressions.size());
 
     for(Instruction &instr: block) {
-        if(isValidExprTypeForTracking(instr)) {
-            Expression* expr = Expression::getExpression(instr);
+        if(myGlobalDataflowInfo->instrToExpressionsMap.find(&instr) != myGlobalDataflowInfo->instrToExpressionsMap.end()) {
+            Expression* expr =  myGlobalDataflowInfo->instrToExpressionsMap[&instr];
             int index = getExpressionIndex(expr);
             dfInfo.exprsUsed[index] = true;
         }
@@ -232,6 +233,7 @@ void LCM :: gatherExpressionsFromFunction(Function &function)
             {
                 Expression* expr = Expression::getExpression(instr);
                 addExpression(expr);
+                myGlobalDataflowInfo->instrToExpressionsMap[&instr] = expr;
             }
         }
     }
@@ -392,8 +394,8 @@ void LCM :: addAndPropogateExpressions(Function &function)
             auto &instr = *it;
             ++it;
 
-            if(isValidExprTypeForTracking(instr)) {
-                Expression* expr = Expression::getExpression(instr);
+            if(myGlobalDataflowInfo->instrToExpressionsMap.find(&instr) != myGlobalDataflowInfo->instrToExpressionsMap.end()) {
+                Expression* expr =  myGlobalDataflowInfo->instrToExpressionsMap[&instr];
                 int index = myGlobalDataflowInfo->expressionsToIndexMap[*expr];
                 // For the expressions which have a value to be updated.
                 if (expValueMap.find(index) != expValueMap.end()) {
