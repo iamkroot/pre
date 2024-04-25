@@ -178,14 +178,22 @@ void LCM :: displayBitvector(BitVector bv)
 // ------------ Main Algo Step Functions --------------
 void LCM :: initializeDS(Function &func)
 {
+    // Initialize a new global datainfo object.
     myGlobalDataflowInfo = new PREDataFlowGlobalInfo();
+    myGlobalDataflowInfo->instrToExpressionsMap.clear();
     myGlobalDataflowInfo->expressionsToIndexMap.clear();
     myGlobalDataflowInfo->expressions.clear();
     myGlobalDataflowInfo->exitBasicBlocks.clear();
+    myGlobalDataflowInfo->allBasicBlocks.clear();
     myGlobalDataflowInfo->trueVector = BitVector();
     myGlobalDataflowInfo->falseVector = BitVector();
     myGlobalDataflowInfo->varToExpsWithVarMap.clear();
 
+    // Clear the map from basic blocks to dataflowinfo.
+    myBlockLevelDataflowInfoMap.clear();
+
+    // Populate the map with info for the basic blocks of the
+    // specified function.
     for (BasicBlock &block: func) {
         PREDataFlowBlockLevelInfo* dfInfo = new PREDataFlowBlockLevelInfo();
         myBlockLevelDataflowInfoMap[&block] = dfInfo;
