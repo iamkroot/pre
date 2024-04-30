@@ -2,6 +2,7 @@ from pathlib import Path
 import subprocess as sp
 import logging
 import os
+import csv
 import re
 import time
 
@@ -75,13 +76,17 @@ def run_all_tests(path: Path):
         if times is not None:
             res[src_file] = {
                 "num_replaced": replaced,
-                "orig_3NOOOOOOOOOOtime": times[0],
+                "orig_time": times[0],
                 "opt_time": times[1],
                 "gvn_time": times[2],
             }
 
-    print(*(f"{k.stem}\t{v['num_replaced']}\t{v['orig_time']}\t{v['opt_time']}" for k, v in res.items()), sep="\n", file=open("stats.tsv", "w"))
+    with open("stats.tsv", "w") as f:
+        writer = csv.writer(f, dialect=csv.excel_tab)
+        keys = ["name", "num_replaced", "orig_time", "opt_time", "gvn_time"]
+        writer.writerow(keys)
+        writer.writerows((k.stem, *(v[key] for key in keys[1:]))for k, v in res.items())
 
 if __name__ == "__main__":
-    run_all_tests(HANDWRITTEN_TESTS_DIR)
-    # run_all_tests(BENCHGAME_TESTS_DIR)
+    # run_all_tests(HANDWRITTEN_TESTS_DIR)
+    run_all_tests(BENCHGAME_TESTS_DIR)
