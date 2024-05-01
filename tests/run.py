@@ -59,8 +59,7 @@ def compare_output(src_file: Path):
         logging.warning(f"timeout with {src_file}")
         return
     assert orig_res == opt_res
-    if orig_out.read_bytes() != opt_out.read_bytes():
-        return
+    assert orig_out.read_bytes() == opt_out.read_bytes()
     return orig_time, opt_time, gvn_time
 
 
