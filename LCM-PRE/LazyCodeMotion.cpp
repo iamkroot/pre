@@ -90,7 +90,7 @@ namespace {
 // ----------- Helper functions implementation -------------
 bool LCM :: isValidExprTypeForTracking(Instruction &instr)
 {
-    return instr.isBinaryOp();
+    return instr.isBinaryOp() || instr.getOpcode() == Instruction::ICmp || instr.getOpcode() == Instruction::FCmp || instr.isBitwiseLogicOp();
 }
 
 void LCM :: addExpression(Expression* expr)
