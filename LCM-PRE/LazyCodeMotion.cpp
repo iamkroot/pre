@@ -136,15 +136,16 @@ void LCM :: updateGenAndKillForAnticipatedAnalysis(BasicBlock &block)
     dfInfo.genAnticipated = BitVector(myGlobalDataflowInfo->expressions.size());
 
     for(Instruction &instr: block) {
+        Value* dest = &instr;
+
+        // All expressions with the value of the present instruction are killed.
+        dfInfo.killAnticipated |= *(getExpressionsWithVar(dest));
+
+        // If the instruction corresponds to an expression we are tracking and it is not killed yet in this
+        // block, then it is in the gen set.
         if(myGlobalDataflowInfo->instrToExpressionsMap.find(&instr) != myGlobalDataflowInfo->instrToExpressionsMap.end()) {
             Expression* expr = myGlobalDataflowInfo->instrToExpressionsMap[&instr];
             int index = getExpressionIndex(expr);
-
-            // Output of the instruction.
-            Value* dest = &instr;
-
-            dfInfo.killAnticipated |= *(getExpressionsWithVar(dest));
-
             if(!dfInfo.killAnticipated[index]) {
                 dfInfo.genAnticipated[index] = true;
             }
