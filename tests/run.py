@@ -2,9 +2,9 @@ from pathlib import Path
 import subprocess as sp
 import logging
 import os
-import csv
 import re
 import time
+import pandas
 
 logging.basicConfig(level=logging.DEBUG, style="{", format="{asctime} - {levelname} - {message}")
 
@@ -29,19 +29,13 @@ def run_test(name: str, path: Path):
         replaced += int(m.group(1))
     return replaced
 
-def compare_output(src_file: Path):
+def compare_output(src_file: Path, skip_out_cmp=False):
     orig_exec = src_file.with_suffix(".orig")
-    if not orig_exec.exists():
-        print("3NOOOOOOOOOO\n"*10, src_file)
-        return
+    assert orig_exec.exists()
     opt_exec = src_file.with_suffix(".opt")
-    if not opt_exec.exists():
-        print("2NOOOOOOOOOO\n"*10, src_file)
-        return
+    assert opt_exec.exists()
     gvn_exec = src_file.with_suffix(".gvn")
-    if not gvn_exec.exists():
-        print("NOOOOOOOOOO\n"*10, src_file)
-        return
+    assert gvn_exec.exists()
     orig_out = src_file.with_suffix(".orig.out")
     opt_out = src_file.with_suffix(".opt.out")
     gvn_out = src_file.with_suffix(".gvn.out")
@@ -58,34 +52,61 @@ def compare_output(src_file: Path):
     except sp.TimeoutExpired:
         logging.warning(f"timeout with {src_file}")
         return
-    assert orig_res == opt_res
-    assert orig_out.read_bytes() == opt_out.read_bytes()
+    assert orig_res == opt_res == gvn_res
+    if not skip_out_cmp:
+        assert orig_out.read_bytes() == opt_out.read_bytes()
     return orig_time, opt_time, gvn_time
 
 
 
 def run_all_tests(path: Path):
     logging.info(f"Running tests in {path}")
-    res = {}
+    df = pandas.DataFrame()
+    SKIP_OUT_CMP = ["flops"]
     for src_file in path.iterdir():
         if src_file.suffix != ".c":
             continue
         replaced = run_test(src_file.stem, path)
-        times = compare_output(src_file)
-        if times is not None:
-            res[src_file] = {
-                "num_replaced": replaced,
-                "orig_time": times[0],
-                "opt_time": times[1],
-                "gvn_time": times[2],
+        skip_out_cmp = src_file.stem in SKIP_OUT_CMP
+        try:
+            times = compare_output(src_file, skip_out_cmp)
+        except AssertionError as e:
+            logging.exception(f"Error with {src_file}")
+            continue
+        if times is None:
+            continue
+        # for each file, have 10 runs. 
+        runs = pandas.DataFrame()
+        for i in range(10):
+            times = compare_output(src_file)
+            assert times is not None
+            datapoint = {
+                # "benchmark": src_file.stem,
+                "run": i,
+                "orig_time_ns": times[0],
+                "opt_time_ns": times[1],
+                "gvn_time_ns": times[2],
             }
+            # add to pandas dataframe for each run
+            runs = runs.append(datapoint, ignore_index=True)
+        # for this file calculate the average time for each run, and add another column for the average
+        df = df.append({
+            "benchmark": src_file.stem,
+            "num_replaced": replaced,
+            "orig_time_ms": runs["orig_time_ns"].mean() / 1_000_000,
+            "opt_time_ms": runs["opt_time_ns"].mean() / 1_000_000,
+            "gvn_time_ms": runs["gvn_time_ns"].mean() / 1_000_000,
+            "orig_time_std": runs["orig_time_ns"].std() / 1_000_000,
+            "opt_time_std": runs["opt_time_ns"].std() / 1_000_000,
+            "gvn_time_std": runs["gvn_time_ns"].std() / 1_000_000,
+            "opt_time_speedup": (runs["orig_time_ns"].mean() - runs["opt_time_ns"].mean()) / runs["orig_time_ns"].mean(),
+            "gvn_time_speedup": (runs["orig_time_ns"].mean() - runs["gvn_time_ns"].mean()) / runs["orig_time_ns"].mean(),
+        }, ignore_index=True)
 
-    with open("stats.tsv", "w") as f:
-        writer = csv.writer(f, dialect=csv.excel_tab)
-        keys = ["name", "num_replaced", "orig_time", "opt_time", "gvn_time"]
-        writer.writerow(keys)
-        writer.writerows((k.stem, *(v[key] for key in keys[1:]))for k, v in res.items())
+    df.to_clipboard()
+    df.to_csv("stats.tsv", index=False, sep="\t")
 
 if __name__ == "__main__":
+    sp.check_call(["make", "clean"], cwd=TEST_DIR)
     # run_all_tests(HANDWRITTEN_TESTS_DIR)
     run_all_tests(BENCHGAME_TESTS_DIR)
