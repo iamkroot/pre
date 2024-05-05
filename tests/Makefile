@@ -6,7 +6,7 @@ OPT := $(LLVM_INSTALL_DIR)/bin/opt
 CLANG := $(LLVM_INSTALL_DIR)/bin/clang
 CLANGPP := $(LLVM_INSTALL_DIR)/bin/clang++
 
-OPTARGS := -mem2reg -enable-new-pm=0 -load $(SRCDIR)/build/LCM-PRE/libLCM.so 
+OPTARGS := -enable-new-pm=0 -load $(SRCDIR)/build/LCM-PRE/libLCM.so -dot-cfg -S
 
 # Run like: "TARGET=dummy make run"
 run: buildlib $(TARGET).ll
@@ -14,29 +14,29 @@ run: buildlib $(TARGET).ll
 	make runpass
 	make runpassgvn
 	make runreassoc
-	make runpassfull
 
 runorig:
-	$(OPT) $(OPTARGS) ${TARGET}.ll -mem2reg -simplifycfg -S -dot-cfg -o ${TARGET}.orig.ll
-	$(CLANG) -lm -Xclang -disable-O0-optnone -Wno-nullability-completeness ${TARGET}.orig.ll -o ${TARGET}.orig
+	$(OPT) $(OPTARGS) ${TARGET}.ll -mem2reg -mem2reg -simplifycfg -o ${TARGET}.orig.ll
+	$(CLANG) -lm -O0 -Wno-nullability-completeness ${TARGET}.orig.ll -o ${TARGET}.orig
 	mv .main.dot ${TARGET}.main.orig.dot  # fixme: this only works for single funcs
 
 runpass:
-	$(OPT) $(OPTARGS) -reassociate ${TARGET}.ll -lcm -simplifycfg -S -dot-cfg -o ${TARGET}.opt.ll
-	$(CLANG) -lm -Xclang -disable-O0-optnone -Wno-nullability-completeness ${TARGET}.opt.ll -o ${TARGET}.opt
+	$(OPT) $(OPTARGS)  ${TARGET}.ll -mem2reg -lcm -mem2reg -simplifycfg -o ${TARGET}.opt.ll
+	$(CLANG) -lm -O0 -Wno-nullability-completeness ${TARGET}.opt.ll -o ${TARGET}.opt
 	mv .main.dot ${TARGET}.main.opt.dot
 
 runpassgvn:
-	$(OPT) $(OPTARGS) -reassociate ${TARGET}.ll -gvn -simplifycfg -S -dot-cfg -o ${TARGET}.gvn.ll
-	$(CLANG) -lm -Xclang -disable-O0-optnone -Wno-nullability-completeness ${TARGET}.gvn.ll -o ${TARGET}.gvn
+	$(OPT) $(OPTARGS) ${TARGET}.ll -mem2reg -gvn -mem2reg -simplifycfg -o ${TARGET}.gvn.ll
+	$(CLANG) -lm -O0 -Wno-nullability-completeness ${TARGET}.gvn.ll -o ${TARGET}.gvn
 	mv .main.dot ${TARGET}.main.gvn.dot
 
 runreassoc:
-	$(OPT) $(OPTARGS) ${TARGET}.ll -reassociate -S -dot-cfg -o ${TARGET}.reassoc.ll
+	$(OPT) $(OPTARGS) ${TARGET}.ll -reassociate -o ${TARGET}.reassoc.ll
+	$(CLANG) -lm -O0 -Wno-nullability-completeness ${TARGET}.reassoc.ll -o ${TARGET}.reassoc
 	mv .main.dot ${TARGET}.main.reassoc.dot
 
 runpassfull:
-	$(OPT) $(OPTARGS) ${TARGET}.ll -reassociate -lcm -S -dot-cfg -o ${TARGET}.optfull.ll
+	$(OPT) $(OPTARGS) ${TARGET}.ll -reassociate -lcm -o ${TARGET}.optfull.ll
 	mv .main.dot ${TARGET}.main.optfull.dot
 
 opendot: run
@@ -56,6 +56,6 @@ buildlib: $(SRCDIR)/LCM-PRE/LazyCodeMotion.cpp
 	$(CLANG) -Xclang -disable-O0-optnone -Wno-nullability-completeness -S -emit-llvm -c $< -o $@ 
 
 clean:
-	rm -f *.dot *.ll *.orig *.opt *.gvn *.out *.log
-	cd handwritten && rm -f *.dot *.ll *.orig *.opt *.gvn *.out *.log
-	cd benchgame && rm -f *.dot *.ll *.orig *.opt *.gvn *.out *.log
+	rm -f .*.dot *.dot *.ll *.orig *.opt *.gvn *.reassoc *.out *.log
+	cd handwritten && rm -f *.dot *.ll *.orig *.opt *.gvn *.reassoc *.out *.log
+	cd benchgame && rm -f *.dot *.ll *.orig *.opt *.gvn *.reassoc *.out *.log
